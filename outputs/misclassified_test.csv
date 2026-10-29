@@ -1,0 +1,3 @@
+﻿image,true,predicted,prob_NG,prob_OK
+data/split\test\NG\Fray_exp6_num_972.jpg,NG,OK,0.0595,0.9405
+data/split\test\OK\exp2_num_346332.jpg,OK,NG,0.8901,0.1099

@@ -1,0 +1,14 @@
+Magnetic Tile Surface Defect Dataset
+Source: https://github.com/abin24/Magnetic-tile-defect-datasets.
+Downloaded: 2026-10-29
+
+Paper to cite if used in research:
+  Y. Huang, C. Qiu, K. Yuan, "Surface defect saliency of magnetic tile", The Visual Computer, 36, 85-96 (2020).
+The repository has no formal license; the authors write "It is welcomed to use our dataset" and ask for a citation.
+Use it for learning/research, not for commercial products.
+
+How the images were placed in data/raw:
+  data/raw/OK/  <- MT_Free (952 defect-free images)
+  data/raw/NG/  <- MT_Blowhole 115, MT_Break 85, MT_Crack 57, MT_Fray 32, MT_Uneven 103 (392 images)
+  NG file names start with the defect type, e.g. Crack_exp1_num_249594.jpg
+  Only the .jpg photos were copied; the .png defect masks (segmentation labels) were not.
