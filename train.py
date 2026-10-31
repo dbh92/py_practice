@@ -146,3 +146,6 @@ if __name__ == '__main__':  # Bắt buộc trên Windows khi NUM_WORKERS > 0
 
     print("Best val macro F1: {:.4f} -> {}".format(best_score, best_path))  # Kết quả cuối
     print("Next step: python evaluate.py")  # Gợi ý bước tiếp theo
+
+
+# Bị lỗi do sai nhãn.

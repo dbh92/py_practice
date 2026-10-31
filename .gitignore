@@ -7,3 +7,11 @@ __pycache__/
 
 # PyCharm per-user window state
 .idea/workspace.xml
+
+# Service logs and saved images (generated while the service runs)
+service/logs/
+
+# C# build output (rebuild with: dotnet build inspection_app -c Release)
+inspection_app/bin/
+inspection_app/obj/
+.vs/

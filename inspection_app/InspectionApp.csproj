@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Ứng dụng WPF chạy trên .NET 8 (Windows). Không dùng thư viện ngoài: HttpClient và System.Text.Json có sẵn trong .NET -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>InspectionApp</RootNamespace>
+    <AssemblyName>InspectionApp</AssemblyName>
+  </PropertyGroup>
+
+</Project>

@@ -1,6 +1,7 @@
 import argparse  # Thư viện đọc tham số dòng lệnh
 import math  # Thư viện toán học, dùng hàm ceil (làm tròn lên) để tính số trang, số hàng
 import os  # Thư viện làm việc với file/thư mục
+import time  # Thư viện đo thời gian xử lý mỗi ảnh
 import torch  # Thư viện PyTorch chính
 import matplotlib.pyplot as plt  # Thư viện vẽ hình, dùng để hiện ảnh khi có cờ --show
 from PIL import Image  # Thư viện mở file ảnh
@@ -79,9 +80,13 @@ if __name__ == '__main__':  # Chỉ chạy khi chạy trực tiếp file
     model, checkpoint = load_model_from_checkpoint(args.checkpoint, device)  # Nạp mô hình
     class_names = checkpoint["class_names"]  # Danh sách lớp lúc train
     transform = build_transforms(train=False, image_size=checkpoint["image_size"])  # Resize + chuẩn hóa giống hệt lúc đánh giá
+    with torch.no_grad():  # Không cần gradient
+        model(torch.zeros(1, 3, checkpoint["image_size"], checkpoint["image_size"], device=device))  # Chạy thử 1 lần (lần đầu luôn chậm) để thời gian đo ở ảnh đầu tiên không bị sai lệch
 
     results = []  # Kết quả của từng ảnh, dùng để vẽ khi có --show/--save
+    timings = []  # Thời gian xử lý (ms) của từng ảnh, để tính trung bình
     for image_path in collect_image_paths(args.paths):  # Duyệt từng ảnh
+        start = time.perf_counter()  # Bắt đầu bấm giờ: tính cả mở ảnh, xử lý và dự đoán
         try:  # Thử mở ảnh
             image = Image.open(image_path).convert("RGB")  # Mở ảnh và ép về 3 kênh màu
         except OSError as error:  # File không tồn tại hoặc không phải ảnh
@@ -92,11 +97,13 @@ if __name__ == '__main__':  # Chỉ chạy khi chạy trực tiếp file
         with torch.no_grad():  # Không cần gradient khi dự đoán
             probs = torch.softmax(model(input_tensor), dim=1)[0].tolist()  # Xác suất từng lớp của ảnh này
         prediction = decide_predictions([probs], class_names, args.ng_threshold)[0]  # Kết luận lớp (chỉ số)
+        elapsed_ms = (time.perf_counter() - start) * 1000  # Dừng bấm giờ, đổi giây sang mili-giây
+        timings.append(elapsed_ms)  # Lưu lại để tính trung bình
         true_label = true_label_from_path(image_path, class_names)  # Nhãn thật nếu ảnh nằm trong thư mục OK/NG
         wrong = true_label is not None and true_label != class_names[prediction]  # Có biết nhãn thật và đoán sai không
         prob_text = "  ".join("{} {:6.2%}".format(name, p) for name, p in zip(class_names, probs))  # Chuỗi xác suất, vd "NG  3.10%  OK 96.90%"
-        print("{:<4} | {} | {}{}".format(class_names[prediction], prob_text, image_path,
-                                         "  <- WRONG (true {})".format(true_label) if wrong else ""))  # In kết luận, xác suất, tên file; đánh dấu nếu sai
+        print("{:<4} | {} | {:6.1f} ms | {}{}".format(class_names[prediction], prob_text, elapsed_ms, image_path,
+                                                      "  <- WRONG (true {})".format(true_label) if wrong else ""))  # In kết luận, xác suất, thời gian, tên file; đánh dấu nếu sai
 
         if (args.show or args.save) and (wrong or not args.only_wrong):  # Chỉ giữ ảnh cần vẽ
             thumbnail = image.copy()  # Sao chép ảnh để thu nhỏ (không làm hỏng ảnh gốc)
@@ -108,6 +115,10 @@ if __name__ == '__main__':  # Chỉ chạy khi chạy trực tiếp file
                 "confidence": probs[prediction],  # Xác suất của lớp được đoán
                 "true": true_label,  # Nhãn thật (hoặc None)
             })
+
+    if timings:  # Có ít nhất 1 ảnh được dự đoán
+        print("{} images | average {:.1f} ms/image | slowest {:.1f} ms (open + preprocess + predict)".format(
+            len(timings), sum(timings) / len(timings), max(timings)))  # Tổng kết tốc độ
 
     if args.show or args.save:  # Có yêu cầu vẽ
         if results:  # Có ảnh để vẽ

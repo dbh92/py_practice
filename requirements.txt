@@ -3,3 +3,6 @@ torchvision==0.29.1
 scikit-learn==1.7.2
 matplotlib==3.10.9
 pillow==12.3.0
+onnx==1.23.2
+onnxruntime==1.23.2
+onnxscript==0.7.2

@@ -2,6 +2,8 @@
 
 Huấn luyện mô hình CNN để kiểm tra sản phẩm từ ảnh chụp trên dây chuyền: **OK** (đạt) hay **NG** (lỗi).
 
+Bức tranh tổng thể (luồng dữ liệu, kiểm chứng, triển khai, vận hành hằng ngày, cải tiến mô hình) xem trong [WORKFLOW.md](WORKFLOW.md). File này là hướng dẫn lệnh chi tiết từng bước.
+
 ## Cấu trúc thư mục
 
 ```
@@ -13,8 +15,24 @@ pythonProject/
 ├── train.py            # Bước 3: huấn luyện
 ├── evaluate.py         # Bước 4: đánh giá trên tập test
 ├── predict.py          # Bước 5: dự đoán ảnh bất kỳ
+├── export_onnx/        # Bước 6: xuất mô hình sang ONNX để triển khai
+│   ├── export.py           # Xuất best.pt -> model.onnx + model.json, tự kiểm chứng
+│   ├── predict_onnx.py     # Dự đoán bằng ONNX, KHÔNG cần PyTorch
+│   ├── requirements.txt    # Thư viện cho máy chuyền (không có torch)
+│   └── model.onnx, model.json   # Do export.py tạo ra
+├── service/            # Bước 7: service FastAPI phán định ảnh cho WinForms
+│   ├── app.py              # Service: nhận ảnh, trả kết quả JSON
+│   ├── test_client.py      # Gửi thử ảnh, kiểm chứng trùng kết quả với PyTorch
+│   ├── requirements.txt    # Thư viện cho máy chuyền (không có torch)
+│   └── logs/               # Do service tạo ra: log CSV từng ngày (+ ảnh nếu bật --save-images)
+├── inspection_app/     # Bước 8: giao diện kiểm tra hàng (WPF, C#, .NET 8), gọi service
+│   ├── MainWindow.xaml     # Bố cục giao diện
+│   ├── MainWindow.xaml.cs  # Xử lý: chọn ảnh, kéo thả, theo dõi thư mục, hiện kết quả, lịch sử
+│   ├── ServiceClient.cs    # Gọi API của service; lỗi nào cũng trả về HOLD
+│   └── InspectionRecord.cs # Dữ liệu một lần kiểm tra và JSON của service
 ├── requirements.txt    # Các thư viện cần cài
 ├── README.md           # File hướng dẫn này
+├── WORKFLOW.md         # Luồng làm việc của cả dự án và cách vận hành
 ├── data/
 │   ├── raw/            # ← BẠN bỏ ảnh vào đây
 │   │   ├── OK/
@@ -106,7 +124,14 @@ Epoch 3/30 | train loss 0.2199 | val loss 0.3517 | val acc 0.9474 | val F1 0.912
 .venv/Scripts/python.exe predict.py thu_muc_anh/ --save ket_qua/          # lưu lưới ảnh ra file PNG
 ```
 
-Kết quả: `NG   | NG 82.89%  OK 17.11% | anh1.jpg`
+Kết quả mỗi ảnh một dòng: kết luận, xác suất từng lớp, thời gian xử lý ảnh đó (mở ảnh + xử lý + dự đoán), tên file:
+
+```
+NG   | NG 82.89%  OK 17.11% |   21.3 ms | anh1.jpg
+1 images | average 21.3 ms/image | slowest 21.3 ms (open + preprocess + predict)
+```
+
+Dòng cuối là tổng kết tốc độ. Trước khi bấm giờ, chương trình chạy thử mô hình một lần, vì lần chạy đầu tiên luôn chậm hơn hẳn.
 
 - `--show`: hiện ảnh thành lưới, mỗi cửa sổ 20 ảnh. Đóng cửa sổ thì sang trang tiếp theo.
 - Nếu ảnh nằm trong thư mục tên `OK` hoặc `NG` (ví dụ `data/split/test/NG/`), chương trình biết đáp án đúng. Khi đó tiêu đề có màu **xanh** nếu đoán đúng, **đỏ** nếu đoán sai, và dòng in ra có thêm `<- WRONG (true NG)`. Ảnh ở thư mục khác thì tiêu đề màu đen.
@@ -114,6 +139,123 @@ Kết quả: `NG   | NG 82.89%  OK 17.11% | anh1.jpg`
 - Mô hình chỉ biết hai lớp OK và NG của **loại sản phẩm đã học**. Nếu đưa vào một ảnh khác hẳn (ví dụ ảnh con mèo), nó vẫn bắt buộc chọn OK hoặc NG, và có thể rất tự tin. Ngoài dây chuyền, hãy đảm bảo camera luôn chụp đúng sản phẩm và đúng vị trí.
 
 File hỏng hoặc không phải ảnh sẽ được bỏ qua với thông báo `Skipping ...`, và chương trình tiếp tục với ảnh sau.
+
+### Bước 6: Xuất ONNX để triển khai
+
+ONNX là định dạng mô hình dùng chung: máy chuyền chỉ cần `onnxruntime` (nhẹ), không cần cài PyTorch.
+
+```
+.venv/Scripts/python.exe export_onnx/export.py                     # xuất outputs/best.pt và kiểm chứng trên tập test
+.venv/Scripts/python.exe export_onnx/export.py --ng-threshold 0.3  # ghi ngưỡng NG vào model.json
+.venv/Scripts/python.exe export_onnx/predict_onnx.py thu_muc_anh/  # dự đoán bằng ONNX, kết quả in giống predict.py
+```
+
+`export.py` làm 3 việc:
+
+1. Ghi `export_onnx/model.onnx` (mô hình) và `export_onnx/model.json` (danh sách lớp, kích thước ảnh, mean/std, ngưỡng NG, epoch, thời điểm xuất).
+2. **Kiểm chứng**: cho PyTorch và ONNX cùng dự đoán toàn bộ tập test. Đạt khi xác suất lệch nhau dưới 0,0001 và mọi kết luận trùng nhau. Không đạt thì in `Verification FAILED` và **không được dùng file đó**.
+3. Đo tốc độ. Trên máy này, ResNet18 ở 224 pixel: PyTorch khoảng 19 ms, ONNX khoảng 7 ms mỗi ảnh.
+
+**Chép sang máy chuyền**: chỉ cần 3 file `predict_onnx.py`, `model.onnx`, `model.json` và cài `pip install -r export_onnx/requirements.txt`.
+
+Lưu ý:
+
+- `model.onnx` chỉ chứa mạng nơ-ron. Bước xử lý ảnh (RGB, resize bilinear, chia 255, chuẩn hóa mean/std) nằm trong `predict_onnx.py`. Chương trình khác dùng `model.onnx` (ví dụ C#) phải làm **giống hệt**, đọc thông số từ `model.json`. Riêng C# và OpenCV mặc định dùng thứ tự màu BGR, phải đổi sang RGB.
+- Mỗi lần train lại hoặc đổi `NG_THRESHOLD` thì phải chạy lại `export.py`.
+
+### Bước 7: Chạy service FastAPI
+
+WinForms gửi ảnh lên service, service trả kết quả OK/NG. Service dùng `model.onnx` và cách xử lý ảnh trong `export_onnx/`, nên kết quả giống hệt `predict_onnx.py`.
+
+```
+.venv/Scripts/pip.exe install -r service/requirements.txt          # cài một lần
+.venv/Scripts/python.exe service/app.py                            # chạy service tại http://127.0.0.1:8000
+.venv/Scripts/python.exe service/app.py --host 0.0.0.0 --port 8000 # cho máy khác trong mạng LAN gọi tới
+.venv/Scripts/python.exe service/app.py --save-images              # lưu thêm mọi ảnh nhận được để truy vết
+```
+
+Khi service đang chạy, mở `http://127.0.0.1:8000/docs` bằng trình duyệt để xem và thử API trực tiếp.
+
+| API | Chức năng |
+|---|---|
+| `POST /predict` | Gửi 1 ảnh (`multipart/form-data`, trường `file`), kèm `station_id`, `product_id` (tùy chọn). Trả về kết quả |
+| `GET /health` | Kiểm tra service còn sống, mô hình đã nạp chưa |
+| `GET /model-info` | Nội dung `model.json`: lớp, kích thước ảnh, ngưỡng NG, phiên bản |
+
+Kết quả của `/predict`:
+
+```json
+{
+  "request_id": "46b4a1c82eab4d1186462720393ce6cc",
+  "timestamp": "2026-10-30 15:42:24.615",
+  "station_id": "ST01",
+  "product_id": "LOT123",
+  "filename": "Fray_exp6_num_972.jpg",
+  "result": "NG",
+  "probabilities": {"NG": 0.733979, "OK": 0.266021},
+  "p_ng": 0.733979,
+  "ng_threshold": null,
+  "model_version": "2026-10-30 14:48:54 (epoch 10)",
+  "inference_ms": 10.7
+}
+```
+
+Ảnh hỏng hoặc không phải ảnh: trả lỗi 400 (`Cannot read image: ...`). Ảnh lớn hơn 20 MB: trả lỗi 413. Service vẫn chạy tiếp.
+
+**Log**: mỗi lần phán định ghi 1 dòng vào `service/logs/predictions_<ngày>.csv` (mở bằng Excel). Thêm `--save-images` thì lưu cả ảnh gốc vào `service/logs/images/<ngày>/<OK|NG>/`. Ảnh tích lũy rất nhanh, nhớ dọn định kỳ.
+
+**Kiểm chứng** (mở cửa sổ thứ hai khi service đang chạy):
+
+```
+.venv/Scripts/python.exe service/test_client.py data/split/test/NG data/split/test/OK --compare
+```
+
+Script gửi từng ảnh lên service, in kết quả kèm thời gian xử lý trong service và thời gian khứ hồi. `--compare` so mọi kết quả với PyTorch (cùng cách tính như `predict.py`). Đạt khi in `Compare passed`. Trên máy này: trùng 203/203 ảnh, khứ hồi trung bình khoảng 17 ms mỗi ảnh.
+
+**Chép sang máy chuyền**: giữ đúng cấu trúc 2 thư mục, không cần PyTorch:
+
+```
+export_onnx/predict_onnx.py, model.onnx, model.json
+service/app.py, requirements.txt
+```
+
+Rồi cài `pip install -r service/requirements.txt` và chạy `python service/app.py`. Sau khi train lại: chạy `export.py`, chép `model.onnx` + `model.json` mới sang, khởi động lại service.
+
+Lưu ý cho phía WinForms:
+
+- Dùng **một** `HttpClient` cho cả chương trình, đặt timeout (vd 3 giây).
+- **Service không trả lời, timeout hoặc báo lỗi thì xử lý như NG/HOLD và bật cảnh báo.** Tuyệt đối không cho hàng qua là OK khi chưa phán định được.
+- Ghi lại `request_id` cùng sản phẩm để tra log khi cần.
+
+### Bước 8: Giao diện kiểm tra hàng (WPF)
+
+Chương trình Windows cho người kiểm tra: gửi ảnh lên service và hiện kết quả thật to, dễ nhìn. Viết bằng C# (.NET 8), không cần thư viện ngoài.
+
+```
+dotnet build inspection_app -c Release                                     # build (cần .NET 8 SDK)
+inspection_app\bin\Release\net8.0-windows\InspectionApp.exe                # mở giao diện (service phải đang chạy)
+inspection_app\bin\Release\net8.0-windows\InspectionApp.exe --url http://192.168.1.10:8000 --station ST02 --watch D:\Camera
+```
+
+Cũng có thể mở `inspection_app/InspectionApp.csproj` bằng Visual Studio 2022 rồi bấm F5.
+
+| Phần | Chức năng |
+|---|---|
+| Thanh trên | Địa chỉ service, nút **Kết nối**, đèn trạng thái (cập nhật theo lần gửi ảnh gần nhất; chương trình chỉ gọi service khi có ảnh cần kiểm tra, không gọi định kỳ), thông tin mô hình, **Trạm** và **Mã SP / Lô** (gửi kèm mỗi ảnh, ghi vào log của service) |
+| **Chọn ảnh...** | Chọn một hoặc nhiều ảnh để kiểm tra |
+| **Kiểm tra cả thư mục...** | Kiểm tra lần lượt mọi ảnh trong một thư mục. Nút **Dừng** để dừng giữa chừng |
+| **Theo dõi thư mục...** | Chọn thư mục mà phần mềm camera lưu ảnh vào: có ảnh mới là tự động kiểm tra. Chương trình chờ camera ghi xong file rồi mới đọc |
+| Kéo thả | Kéo ảnh hoặc thư mục vào khung ảnh |
+| Ô kết quả | **OK** (xanh), **NG** (đỏ), **HOLD** (cam). NG và HOLD có âm báo |
+| Thống kê | Tổng, OK, NG, HOLD và tỉ lệ NG kể từ lúc mở chương trình |
+| Chi tiết | Xác suất từng lớp, thời gian trong service, thời gian khứ hồi, ngưỡng NG, phiên bản mô hình, Request ID (chọn và copy được), lý do HOLD |
+| Lịch sử | 1000 lần kiểm tra gần nhất, tô màu theo kết quả. Bấm một dòng để xem lại ảnh và kết quả. **Xuất CSV...** để lưu ra Excel |
+
+**HOLD** nghĩa là không phán định được: service chưa chạy hoặc mất kết nối, quá 5 giây không trả lời, ảnh hỏng, hoặc không đọc được file. Hàng HOLD phải giữ lại để người kiểm tra xem, **không được cho qua**. Chương trình được viết để lỗi ở bất kỳ đâu cũng ra HOLD, không bao giờ ra OK. Lưu ý: khi service tắt hẳn, Windows mất khoảng 2 giây mới báo không kết nối được, nên HOLD hiện ra chậm hơn bình thường.
+
+Tham số dòng lệnh (dùng khi tạo shortcut cho máy chuyền): `--url` địa chỉ service, `--station` mã trạm, `--watch` thư mục tự theo dõi ngay khi mở.
+
+**Chép sang máy chuyền**: chép cả thư mục `inspection_app\bin\Release\net8.0-windows\`. Máy chuyền cần cài **.NET 8 Desktop Runtime** (bản Runtime, không cần SDK).
 
 ## Các file trong `outputs/`
 
@@ -164,6 +306,12 @@ Hãy tạo thêm thư mục, ví dụ `data/raw/OK`, `data/raw/NG_xuoc`, `data/r
 | `Warning: class '...' has too few images` | Lớp đó quá ít ảnh, nên có tập không có ảnh nào. Thu thập thêm ảnh |
 | `Every class needs train images...` | Có lớp không có ảnh train, hoặc tập val trống. Thu thập thêm ảnh rồi chia lại |
 | `Checkpoint not found` | Chưa train. Chạy `train.py` trước |
+| `model.json not found in ...` | Chưa xuất ONNX. Chạy `export_onnx/export.py` trước, hoặc chỉ đúng thư mục bằng `--model-dir` |
+| `No images in data/split/test. Use --split val.` | Tập test trống (vd `TEST_RATIO = 0`). Kiểm chứng bằng tập val: `export.py --split val` |
+| `Verification FAILED: do not deploy this model.onnx.` | ONNX cho kết quả khác PyTorch. Không dùng file vừa xuất; báo lại để kiểm tra |
+| `Cannot connect to http://127.0.0.1:8000. Start the service first: ...` | Service chưa chạy hoặc sai địa chỉ. Chạy `service/app.py` ở một cửa sổ khác, hoặc sửa `--url` |
+| `Compare FAILED. If you retrained, run export_onnx/export.py again, then restart the service.` | Service khác PyTorch. Thường do train lại mà chưa xuất lại ONNX, hoặc chưa khởi động lại service |
+| `[Errno 10048] error while attempting to bind on address` khi chạy service | Cổng 8000 đang bị chương trình khác dùng (thường là service cũ chưa tắt). Tắt nó, hoặc dùng `--port 8001` |
 | `Class names changed ..., cannot resume` | Đã thêm hoặc đổi tên thư mục lớp sau lần train trước. Chạy `train.py` không có `--resume` |
 | `out of memory` / máy rất chậm | Giảm `BATCH_SIZE` hoặc `IMAGE_SIZE` trong `config.py` |
 | Lỗi liên quan đến `DataLoader` / worker | Đặt `NUM_WORKERS = 0` trong `config.py` |

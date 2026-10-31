@@ -10,6 +10,20 @@
             </Attribute>
           </value>
         </entry>
+        <entry key="\service\logs\predictions_2026-10-30.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
+        <entry key="\service\logs\predictions_2026-10-31.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
       </map>
     </option>
   </component>
